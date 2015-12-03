@@ -22,6 +22,7 @@ import static android.support.test.espresso.matcher.ViewMatchers.isAssignableFro
 import static android.support.test.espresso.matcher.ViewMatchers.isDescendantOfA;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.isA;
 
 import android.support.test.espresso.action.AdapterDataLoaderAction;
 import android.support.test.espresso.action.AdapterViewProtocol;
@@ -30,10 +31,14 @@ import android.support.test.espresso.action.AdapterViewProtocols;
 import android.support.test.espresso.matcher.RootMatchers;
 import com.google.common.base.Optional;
 
+import android.util.Log;
+import android.util.Pair;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.Adapter;
 import android.widget.AdapterView;
+import android.widget.ListView;
 
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
@@ -127,9 +132,15 @@ public class DataInteraction {
   public ViewInteraction perform(ViewAction... actions) {
      AdapterDataLoaderAction adapterDataLoaderAction = load();
 
-    return onView(makeTargetMatcher(adapterDataLoaderAction))
-        .inRoot(rootMatcher)
-        .perform(actions);
+    ViewInteraction vi = onView(makeTargetMatcher(adapterDataLoaderAction))
+            .inRoot(rootMatcher);
+
+    if (childViewMatcher.isPresent() && adapterDataLoaderAction.getAdaptedData().opaqueToken instanceof Integer){
+      int position = (Integer) adapterDataLoaderAction.getAdaptedData().opaqueToken;
+      vi.perform(new CenterOnChildViewAction(position));
+    }
+
+    return vi.perform(actions);
   }
 
   /**
@@ -140,9 +151,70 @@ public class DataInteraction {
   public ViewInteraction check(ViewAssertion assertion) {
      AdapterDataLoaderAction adapterDataLoaderAction = load();
 
-    return onView(makeTargetMatcher(adapterDataLoaderAction))
-        .inRoot(rootMatcher)
-        .check(assertion);
+    ViewInteraction vi = onView(makeTargetMatcher(adapterDataLoaderAction))
+        .inRoot(rootMatcher);
+
+    if (childViewMatcher.isPresent() && adapterDataLoaderAction.getAdaptedData().opaqueToken instanceof Integer){
+      int position = (Integer) adapterDataLoaderAction.getAdaptedData().opaqueToken;
+      vi.perform(new CenterOnChildViewAction(position));
+    }
+
+    return vi.check(assertion);
+  }
+
+  private class CenterOnChildViewAction implements ViewAction {
+    private final int position;
+
+    CenterOnChildViewAction(int position){
+      this.position = position;
+    }
+
+    @Override
+    public Matcher<View> getConstraints() {
+      return isA(View.class);
+    }
+
+    @Override
+    public String getDescription() {
+      return "center on";
+    }
+
+    @Override
+    public void perform(UiController uiController, View view) {
+      Pair<ListView,ViewGroup> pair = findListViewAncestor(view);
+      if (pair!=null) {
+        int centerOfView = getTop(pair.second, view);
+        centerOfView += (view.getHeight() / 2);
+        int offset = pair.first.getHeight() / 2 - centerOfView;
+        ListView.class.cast(pair.first).setSelectionFromTop(position, offset);
+      }
+    }
+    private Pair<ListView,ViewGroup> findListViewAncestor(View view){
+      ViewGroup vg = ViewGroup.class.cast(view.getParent());
+      ViewGroup childView = null;
+      while(vg!=null){
+        if (ListView.class.isAssignableFrom(vg.getClass())) {
+          return new Pair<>(ListView.class.cast(vg), childView);
+        } else {
+          childView = vg;
+          vg = ViewGroup.class.cast(vg.getParent());
+        }
+      }
+      return null;
+    }
+    public int getTop(final ViewGroup ancestor, View view){
+      if (view==ancestor){
+        return 0;
+      } else {
+        int top = view.getTop();
+        if (ViewGroup.class.isAssignableFrom(view.getParent().getClass())){
+          top += getTop(ancestor, (ViewGroup) view.getParent());
+        } else {
+          Log.i("DataInteraction","giving up calculating the top");
+        }
+        return top;
+      }
+    }
   }
 
   private AdapterDataLoaderAction load() {
